@@ -1,4 +1,5 @@
 import argparse
+import time
 import torch
 
 from src.data import load_token_array, get_batch
@@ -44,6 +45,7 @@ def get_args():
     parser.add_argument("--checkpoint_interval", type=int, default=500)
     parser.add_argument("--num_val_batches", type=int, default=20)
 
+    parser.add_argument("--init_seed", type=int, default=0)
     parser.add_argument("--train_seed", type=int, default=1)
     parser.add_argument("--val_seed", type=int, default=2)
 
@@ -67,11 +69,13 @@ def evaluate(model, val_tokens, batch_size, seq_len, device, val_generator, num_
 
 def main():
     args = get_args()
+    t0 = time.time()
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     train_tokens = load_token_array(args.train_path)
     val_tokens = load_token_array(args.val_path)
 
+    torch.manual_seed(args.init_seed)
     model = TransformerLM(
         vocab_size=args.vocab_size,
         context_length=args.context_length,
@@ -133,10 +137,13 @@ def main():
             )
 
         if do_log:
-            line = f"step {completed}/{args.num_steps}  lr {lr:.6f}  train_loss {train_loss:.4f}  grad_norm {grad_norm:.4f}"
+            line = (
+                f"step {completed}/{args.num_steps}  lr {lr:.6f}  train_loss {train_loss:.4f}  "
+                f"grad_norm {grad_norm:.4f}  elapsed {time.time() - t0:.0f}s"
+            )
             if val_loss is not None:
                 line += f"  val_loss {val_loss:.4f}"
-            print(line)
+            print(line, flush=True)
 
         if do_checkpoint:
             save_checkpoint(model, optimizer, completed, train_generator, val_generator, args.checkpoint_path)

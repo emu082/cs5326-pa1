@@ -15,6 +15,7 @@ def get_args():
     parser.add_argument("--val_path", required=True)
     parser.add_argument("--checkpoint_path", default="checkpoint.pt")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--amp", action="store_true")
 
     parser.add_argument("--vocab_size", type=int, default=8192)
     parser.add_argument("--context_length", type=int, default=256)
@@ -52,7 +53,7 @@ def get_args():
     return parser.parse_args()
 
 
-def evaluate(model, val_tokens, batch_size, seq_len, device, val_generator, num_batches):
+def evaluate(model, val_tokens, batch_size, seq_len, device, val_generator, num_batches, use_amp=False):
     was_training = model.training
     model.eval()
 
@@ -60,7 +61,9 @@ def evaluate(model, val_tokens, batch_size, seq_len, device, val_generator, num_
     with torch.inference_mode():
         for _ in range(num_batches):
             x, y = get_batch(val_tokens, batch_size, seq_len, device, val_generator)
-            loss = cross_entropy(model(x), y)
+            with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=use_amp):
+                logits = model(x)
+            loss = cross_entropy(logits.float(), y)
             total_loss += loss.item()
 
     model.train(was_training)
@@ -71,6 +74,7 @@ def main():
     args = get_args()
     t0 = time.time()
     device = "cuda" if torch.cuda.is_available() else "cpu"
+    use_amp = args.amp and device == "cuda"
 
     train_tokens = load_token_array(args.train_path)
     val_tokens = load_token_array(args.val_path)
@@ -95,6 +99,7 @@ def main():
         eps=args.adam_eps,
         weight_decay=args.weight_decay,
     )
+    scaler = torch.amp.GradScaler("cuda", enabled=use_amp)
 
     train_generator = torch.Generator().manual_seed(args.train_seed)
     val_generator = torch.Generator().manual_seed(args.val_seed)
@@ -115,14 +120,17 @@ def main():
 
         for _ in range(args.grad_accum_steps):
             x, y = get_batch(train_tokens, args.batch_size, args.sequence_length, device, train_generator)
-            logits = model(x)
-            loss = cross_entropy(logits, y)
-            (loss / args.grad_accum_steps).backward()
+            with torch.autocast(device_type="cuda", dtype=torch.float16, enabled=use_amp):
+                logits = model(x)
+            loss = cross_entropy(logits.float(), y)
+            scaler.scale(loss / args.grad_accum_steps).backward()
             train_loss += loss.detach().item()
 
         train_loss /= args.grad_accum_steps
+        scaler.unscale_(optimizer)
         grad_norm = gradient_clipping(model.parameters(), args.max_grad_norm)
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
         completed = step + 1
         is_last = completed == args.num_steps
@@ -133,7 +141,8 @@ def main():
         val_loss = None
         if do_eval:
             val_loss = evaluate(
-                model, val_tokens, args.batch_size, args.sequence_length, device, val_generator, args.num_val_batches
+                model, val_tokens, args.batch_size, args.sequence_length, device,
+                val_generator, args.num_val_batches, use_amp,
             )
 
         if do_log:

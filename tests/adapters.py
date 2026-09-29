@@ -19,38 +19,42 @@ from jaxtyping import Bool, Float, Int
 from torch import Tensor
 
 
-def run_load_token_array(path: str | Path) -> np.memmap:
-    """Open ``path`` as a read-only, little-endian uint16 token stream.
-
-    ``path`` names a raw flat token stream with no header. The returned object
-    must remain an ``np.memmap`` opened with mode ``"r"`` and dtype ``<u2``;
-    do not eagerly load or convert the complete file. The adapter should only
-    import and call the student's loader.
-
-    Returns:
-        A one-dimensional, read-only memory map of little-endian uint16 IDs.
-    """
-    raise NotImplementedError("TODO: connect your implementation")
-
-
-def run_get_batch(
-    dataset: npt.NDArray[np.uint16],
-    batch_size: int,
-    sequence_length: int,
-    device: str | torch.device,
-    generator: torch.Generator,
-) -> tuple[Int[Tensor, "batch sequence"], Int[Tensor, "batch sequence"]]:
-    """Sample next-token input/target windows from a flat token stream.
-
-    Sample ``batch_size`` starts uniformly from
-    ``[0, len(dataset) - sequence_length)`` using ``generator`` as the sole
-    source of randomness. Each sampled slice contains ``sequence_length + 1``
-    IDs. Return its first and last ``sequence_length`` IDs as ``x`` and ``y``.
-    Both outputs must be ``torch.long`` tensors on ``device`` with shape
-    ``[batch_size, sequence_length]``. The adapter should only forward arguments
-    to the student's batching function.
-    """
-    raise NotImplementedError("TODO: connect your implementation")
+def run_load_token_array(path: str | Path) -> np.memmap: 
+    """Open ``path`` as a read-only, little-endian uint16 token stream. 
+ 
+    ``path`` names a raw flat token stream with no header. The returned object 
+    must remain an ``np.memmap`` opened with mode ``"r"`` and dtype ``<u2``; 
+    do not eagerly load or convert the complete file. The adapter should only 
+    import and call the student's loader. 
+ 
+    Returns: 
+        A one-dimensional, read-only memory map of little-endian uint16 IDs. 
+    """ 
+    from src.data import load_token_array 
+ 
+    return load_token_array(path) 
+ 
+ 
+def run_get_batch( 
+    dataset: npt.NDArray[np.uint16], 
+    batch_size: int, 
+    sequence_length: int, 
+    device: str | torch.device, 
+    generator: torch.Generator, 
+) -> tuple[Int[Tensor, "batch sequence"], Int[Tensor, "batch sequence"]]: 
+    """Sample next-token input/target windows from a flat token stream. 
+ 
+    Sample ``batch_size`` starts uniformly from 
+    ``[0, len(dataset) - sequence_length)`` using ``generator`` as the sole 
+    source of randomness. Each sampled slice contains ``sequence_length + 1`` 
+    IDs. Return its first and last ``sequence_length`` IDs as ``x`` and ``y``. 
+    Both outputs must be ``torch.long`` tensors on ``device`` with shape 
+    ``[batch_size, sequence_length]``. The adapter should only forward arguments 
+    to the student's batching function. 
+    """ 
+    from src.data import get_batch 
+ 
+    return get_batch(dataset, batch_size, sequence_length, device, generator)
 
 
 def run_linear(
@@ -69,7 +73,11 @@ def run_linear(
     Returns:
         The module output with shape ``[..., d_out]``.
     """
-    raise NotImplementedError("TODO: connect your implementation")
+    from src.layers import Linear
+
+    layer = Linear(d_in, d_out)
+    layer.weight = torch.nn.Parameter(weights)
+    return layer(in_features)
 
 
 def run_embedding(
@@ -87,8 +95,11 @@ def run_embedding(
     Returns:
         Embedded token vectors with shape ``[*token_ids.shape, d_model]``.
     """
-    raise NotImplementedError("TODO: connect your implementation")
+    from src.layers import Embedding
 
+    layer = Embedding(vocab_size, d_model)
+    layer.weight = torch.nn.Parameter(weights)
+    return layer(token_ids)
 
 def run_rmsnorm(
     d_model: int,
@@ -105,7 +116,11 @@ def run_rmsnorm(
     Returns:
         A tensor with the same shape and floating dtype as ``in_features``.
     """
-    raise NotImplementedError("TODO: connect your implementation")
+    from src.layers import RMSNorm
+
+    layer = RMSNorm(d_model, norm_eps=norm_eps)
+    layer.weight = torch.nn.Parameter(weights)
+    return layer(in_features)
 
 
 def run_silu(in_features: Float[Tensor, "..."]) -> Float[Tensor, "..."]:
@@ -114,7 +129,9 @@ def run_silu(in_features: Float[Tensor, "..."]) -> Float[Tensor, "..."]:
     The adapter must call the student function rather than write the sigmoid
     formula itself. Return a tensor with the same shape as ``in_features``.
     """
-    raise NotImplementedError("TODO: connect your implementation")
+    from src.layers import silu
+
+    return silu(in_features)
 
 
 def run_swiglu(
@@ -135,7 +152,13 @@ def run_swiglu(
     Returns:
         A tensor with shape ``[..., d_model]``.
     """
-    raise NotImplementedError("TODO: connect your implementation")
+    from src.layers import SwiGLU
+
+    layer = SwiGLU(d_model, d_ff)
+    layer.w_gate.weight = torch.nn.Parameter(gate_weight)
+    layer.w_up.weight = torch.nn.Parameter(up_weight)
+    layer.w_down.weight = torch.nn.Parameter(down_weight)
+    return layer(in_features)
 
 
 def run_rope(
@@ -156,7 +179,10 @@ def run_rope(
     Returns:
         The rotated tensor with unchanged shape and floating dtype.
     """
-    raise NotImplementedError("TODO: connect your implementation")
+    from src.attention import RotaryPositionalEmbedding
+
+    rope = RotaryPositionalEmbedding(rope_theta, head_dim, context_length)
+    return rope(in_query_or_key, token_positions)
 
 
 def run_softmax(
@@ -167,7 +193,9 @@ def run_softmax(
     ``dim`` may be positive or negative. The adapter simply forwards the tensor
     and dimension and returns an output of the same shape.
     """
-    raise NotImplementedError("TODO: connect your implementation")
+    from src.attention import softmax
+
+    return softmax(in_features, dim)
 
 
 def run_scaled_dot_product_attention(
@@ -187,7 +215,9 @@ def run_scaled_dot_product_attention(
     Returns:
         Attention values with shape ``[..., queries, d_v]``.
     """
-    raise NotImplementedError("TODO: connect your implementation")
+    from src.attention import scaled_dot_product_attention
+
+    return scaled_dot_product_attention(queries, keys, values, mask)
 
 
 def run_grouped_query_self_attention(
@@ -217,138 +247,184 @@ def run_grouped_query_self_attention(
     Returns:
         Attention output with shape ``[batch, sequence, d_model]``.
     """
-    raise NotImplementedError("TODO: connect your implementation")
+    from src.attention import GroupedQueryAttention
+
+    module = GroupedQueryAttention(d_model, n_q_heads, n_kv_heads, context_length, rope_theta)
+    module.q_proj.weight = torch.nn.Parameter(q_proj_weight)
+    module.k_proj.weight = torch.nn.Parameter(k_proj_weight)
+    module.v_proj.weight = torch.nn.Parameter(v_proj_weight)
+    module.out_proj.weight = torch.nn.Parameter(output_proj_weight)
+    return module(in_features, token_positions)
 
 
-def run_transformer_block(
-    d_model: int,
-    n_q_heads: int,
-    n_kv_heads: int,
-    d_ff: int,
-    context_length: int,
-    rope_theta: float,
-    weights: dict[str, Tensor],
-    in_features: Float[Tensor, "batch sequence d_model"],
-    token_positions: Int[Tensor, "... sequence"] | None = None,
-    norm_eps: float = 1e-5,
-) -> Float[Tensor, "batch sequence d_model"]:
-    """Run one pre-RMSNorm Transformer block with frozen fixture weights.
-
-    Canonical keys are ``attention.{q,k,v,out}_proj.weight``,
-    ``attention_norm.weight``, ``ffn_norm.weight``, and
-    ``ffn.{gate,up,down}.weight``. Instantiate a block using the explicit
-    architectural arguments, translate these names if the student's state-dict
-    differs, inject every tensor, and call the block. The adapter must not
-    reproduce either residual path.
-
-    Returns:
-        Block output with shape ``[batch, sequence, d_model]``.
-    """
-    raise NotImplementedError("TODO: connect your implementation")
-
-
-def run_transformer_lm(
-    vocab_size: int,
-    context_length: int,
-    d_model: int,
-    num_layers: int,
-    n_q_heads: int,
-    n_kv_heads: int,
-    d_ff: int,
-    rope_theta: float,
-    weights: dict[str, Tensor],
-    token_ids: Int[Tensor, "batch sequence"],
-    token_positions: Int[Tensor, "... sequence"] | None = None,
-    norm_eps: float = 1e-5,
-) -> Float[Tensor, "batch sequence vocab"]:
-    """Run the complete Transformer LM with frozen fixture weights.
-
-    Canonical keys are ``token_embedding.weight``, ``blocks.{i}.<block key>``,
-    ``final_norm.weight``, and ``lm_head.weight``. Construct the student model
-    using the explicit dimensions, translate fixture keys if necessary, inject
-    every weight, and call its forward method. Input/output embedding matrices
-    must be distinct parameters.
-
-    Returns:
-        Unnormalized logits with shape ``[batch, sequence, vocab_size]``.
-    """
-    raise NotImplementedError("TODO: connect your implementation")
-
-
-def get_transformer_lm(
-    vocab_size: int,
-    context_length: int,
-    d_model: int,
-    num_layers: int,
-    n_q_heads: int,
-    n_kv_heads: int,
-    d_ff: int,
-    rope_theta: float,
-    *,
-    norm_eps: float = 1e-5,
-    device: str | torch.device | None = None,
-    dtype: torch.dtype | None = None,
-) -> torch.nn.Module:
-    """Construct and return the student's complete Transformer LM module.
-
-    Map the explicit architecture, device, and dtype arguments
-    into whatever constructor or configuration type the student chose. Return a
-    real ``torch.nn.Module`` so tests can inspect parameters and gradients; do
-    not wrap or reimplement its forward computation in the adapter.
-    """
-    raise NotImplementedError("TODO: connect your implementation")
-
-
-def run_cross_entropy(
-    logits: Float[Tensor, "... vocab"], targets: Int[Tensor, "..."]
-) -> Float[Tensor, ""]:
-    """Return stable mean cross-entropy over every target position.
-
-    ``targets`` matches all leading dimensions of ``logits`` and contains class
-    IDs for the final vocabulary axis. The adapter calls the student's loss
-    function; it must not delegate to PyTorch cross-entropy here.
-    """
-    raise NotImplementedError("TODO: connect your implementation")
-
-
-def get_adamw_cls() -> type[torch.optim.Optimizer]:
-    """Return the student's custom AdamW optimizer class, not an instance.
-
-    The returned class must accept PyTorch-style parameter iterables and groups,
-    expose serializable optimizer state, and implement the assignment equations
-    without wrapping ``torch.optim.AdamW``.
-    """
-    raise NotImplementedError("TODO: connect your implementation")
-
-
-def run_get_lr_cosine_schedule(
-    step: int,
-    learning_rate_max: float,
-    learning_rate_min: float,
-    warmup_steps: int,
-    cosine_steps: int,
-) -> float:
-    """Evaluate linear warmup followed by cosine decay at ``step``.
-
-    Forward all five scalar arguments to the student's schedule. It warms from
-    zero to ``learning_rate_max``, decays to ``learning_rate_min`` by
-    ``cosine_steps``, then remains at that floor. Return a Python float.
-    """
-    raise NotImplementedError("TODO: connect your implementation")
+def run_transformer_block( 
+    d_model: int, 
+    n_q_heads: int, 
+    n_kv_heads: int, 
+    d_ff: int, 
+    context_length: int, 
+    rope_theta: float, 
+    weights: dict[str, Tensor], 
+    in_features: Float[Tensor, "batch sequence d_model"], 
+    token_positions: Int[Tensor, "... sequence"] | None = None, 
+    norm_eps: float = 1e-5, 
+) -> Float[Tensor, "batch sequence d_model"]: 
+    """Run one pre-RMSNorm Transformer block with frozen fixture weights. 
+ 
+    Canonical keys are ``attention.{q,k,v,out}_proj.weight``, 
+    ``attention_norm.weight``, ``ffn_norm.weight``, and 
+    ``ffn.{gate,up,down}.weight``. Instantiate a block using the explicit 
+    architectural arguments, translate these names if the student's state-dict 
+    differs, inject every tensor, and call the block. The adapter must not 
+    reproduce either residual path. 
+ 
+    Returns: 
+        Block output with shape ``[batch, sequence, d_model]``. 
+    """ 
+    from src.model import TransformerBlock 
+ 
+    block = TransformerBlock(d_model, n_q_heads, n_kv_heads, d_ff, context_length, rope_theta, norm_eps=norm_eps) 
+    block.attention.q_proj.weight = torch.nn.Parameter(weights["attention.q_proj.weight"]) 
+    block.attention.k_proj.weight = torch.nn.Parameter(weights["attention.k_proj.weight"]) 
+    block.attention.v_proj.weight = torch.nn.Parameter(weights["attention.v_proj.weight"]) 
+    block.attention.out_proj.weight = torch.nn.Parameter(weights["attention.out_proj.weight"]) 
+    block.attention_norm.weight = torch.nn.Parameter(weights["attention_norm.weight"]) 
+    block.ffn_norm.weight = torch.nn.Parameter(weights["ffn_norm.weight"]) 
+    block.ffn.w_gate.weight = torch.nn.Parameter(weights["ffn.gate.weight"]) 
+    block.ffn.w_up.weight = torch.nn.Parameter(weights["ffn.up.weight"]) 
+    block.ffn.w_down.weight = torch.nn.Parameter(weights["ffn.down.weight"]) 
+    return block(in_features, token_positions=token_positions) 
+ 
+ 
+def run_transformer_lm( 
+    vocab_size: int, 
+    context_length: int, 
+    d_model: int, 
+    num_layers: int, 
+    n_q_heads: int, 
+    n_kv_heads: int, 
+    d_ff: int, 
+    rope_theta: float, 
+    weights: dict[str, Tensor], 
+    token_ids: Int[Tensor, "batch sequence"], 
+    token_positions: Int[Tensor, "... sequence"] | None = None, 
+    norm_eps: float = 1e-5, 
+) -> Float[Tensor, "batch sequence vocab"]: 
+    """Run the complete Transformer LM with frozen fixture weights. 
+ 
+    Canonical keys are ``token_embedding.weight``, ``blocks.{i}.<block key>``, 
+    ``final_norm.weight``, and ``lm_head.weight``. Construct the student model 
+    using the explicit dimensions, translate fixture keys if necessary, inject 
+    every weight, and call its forward method. Input/output embedding matrices 
+    must be distinct parameters. 
+ 
+    Returns: 
+        Unnormalized logits with shape ``[batch, sequence, vocab_size]``. 
+    """ 
+    from src.model import TransformerLM 
+ 
+    model = TransformerLM(vocab_size, context_length, d_model, num_layers, n_q_heads, n_kv_heads, d_ff, rope_theta, norm_eps=norm_eps) 
+    model.token_embedding.weight = torch.nn.Parameter(weights["token_embedding.weight"]) 
+    for i, block in enumerate(model.blocks): 
+        prefix = f"blocks.{i}." 
+        block.attention.q_proj.weight = torch.nn.Parameter(weights[prefix + "attention.q_proj.weight"]) 
+        block.attention.k_proj.weight = torch.nn.Parameter(weights[prefix + "attention.k_proj.weight"]) 
+        block.attention.v_proj.weight = torch.nn.Parameter(weights[prefix + "attention.v_proj.weight"]) 
+        block.attention.out_proj.weight = torch.nn.Parameter(weights[prefix + "attention.out_proj.weight"]) 
+        block.attention_norm.weight = torch.nn.Parameter(weights[prefix + "attention_norm.weight"]) 
+        block.ffn_norm.weight = torch.nn.Parameter(weights[prefix + "ffn_norm.weight"]) 
+        block.ffn.w_gate.weight = torch.nn.Parameter(weights[prefix + "ffn.gate.weight"]) 
+        block.ffn.w_up.weight = torch.nn.Parameter(weights[prefix + "ffn.up.weight"]) 
+        block.ffn.w_down.weight = torch.nn.Parameter(weights[prefix + "ffn.down.weight"]) 
+    model.final_norm.weight = torch.nn.Parameter(weights["final_norm.weight"]) 
+    model.lm_head.weight = torch.nn.Parameter(weights["lm_head.weight"]) 
+    return model(token_ids, token_positions=token_positions) 
+ 
+ 
+def get_transformer_lm( 
+    vocab_size: int, 
+    context_length: int, 
+    d_model: int, 
+    num_layers: int, 
+    n_q_heads: int, 
+    n_kv_heads: int, 
+    d_ff: int, 
+    rope_theta: float, 
+    *, 
+    norm_eps: float = 1e-5, 
+    device: str | torch.device | None = None, 
+    dtype: torch.dtype | None = None, 
+) -> torch.nn.Module: 
+    """Construct and return the student's complete Transformer LM module. 
+ 
+    Map the explicit architecture, device, and dtype arguments 
+    into whatever constructor or configuration type the student chose. Return a 
+    real ``torch.nn.Module`` so tests can inspect parameters and gradients; do 
+    not wrap or reimplement its forward computation in the adapter. 
+    """ 
+    from src.model import TransformerLM 
+ 
+    return TransformerLM(vocab_size, context_length, d_model, num_layers, n_q_heads, n_kv_heads, d_ff, rope_theta, norm_eps=norm_eps, device=device, dtype=dtype)
 
 
-def run_gradient_clipping(
-    parameters: Iterable[torch.nn.Parameter], max_l2_norm: float
-) -> float:
-    """Clip all available gradients by one global factor.
-
-    Pass the iterable through to the student's implementation. Parameters with
-    no gradient are ignored; all remaining gradients share one scale factor.
-
-    Returns:
-        The global L2 norm before clipping as a Python float.
-    """
-    raise NotImplementedError("TODO: connect your implementation")
+def run_cross_entropy( 
+    logits: Float[Tensor, "... vocab"], targets: Int[Tensor, "..."] 
+) -> Float[Tensor, ""]: 
+    """Return stable mean cross-entropy over every target position. 
+ 
+    ``targets`` matches all leading dimensions of ``logits`` and contains class 
+    IDs for the final vocabulary axis. The adapter calls the student's loss 
+    function; it must not delegate to PyTorch cross-entropy here. 
+    """ 
+    from src.loss import cross_entropy 
+ 
+    return cross_entropy(logits, targets) 
+ 
+ 
+def get_adamw_cls() -> type[torch.optim.Optimizer]: 
+    """Return the student's custom AdamW optimizer class, not an instance. 
+ 
+    The returned class must accept PyTorch-style parameter iterables and groups, 
+    expose serializable optimizer state, and implement the assignment equations 
+    without wrapping ``torch.optim.AdamW``. 
+    """ 
+    from src.optim import AdamW 
+ 
+    return AdamW 
+ 
+ 
+def run_get_lr_cosine_schedule( 
+    step: int, 
+    learning_rate_max: float, 
+    learning_rate_min: float, 
+    warmup_steps: int, 
+    cosine_steps: int, 
+) -> float: 
+    """Evaluate linear warmup followed by cosine decay at ``step``. 
+ 
+    Forward all five scalar arguments to the student's schedule. It warms from 
+    zero to ``learning_rate_max``, decays to ``learning_rate_min`` by 
+    ``cosine_steps``, then remains at that floor. Return a Python float. 
+    """ 
+    from src.optim import get_lr_cosine_schedule 
+ 
+    return get_lr_cosine_schedule(step, learning_rate_max, learning_rate_min, warmup_steps, cosine_steps) 
+ 
+ 
+def run_gradient_clipping( 
+    parameters: Iterable[torch.nn.Parameter], max_l2_norm: float 
+) -> float: 
+    """Clip all available gradients by one global factor. 
+ 
+    Pass the iterable through to the student's implementation. Parameters with 
+    no gradient are ignored; all remaining gradients share one scale factor. 
+ 
+    Returns: 
+        The global L2 norm before clipping as a Python float. 
+    """ 
+    from src.optim import gradient_clipping 
+ 
+    return gradient_clipping(parameters, max_l2_norm)
 
 
 def run_save_checkpoint(
@@ -364,7 +440,9 @@ def run_save_checkpoint(
     ``out`` may be a path or a writable binary stream. The adapter should only
     call the student's checkpoint function; it must not assemble the payload.
     """
-    raise NotImplementedError("TODO: connect your implementation")
+    from src.checkpoint import save_checkpoint 
+ 
+    save_checkpoint(model, optimizer, next_step, train_generator, val_generator, out) 
 
 
 def run_load_checkpoint(
@@ -379,4 +457,6 @@ def run_load_checkpoint(
     ``src`` may be a path or a readable binary stream. The adapter should only
     call the student's loader; state restoration belongs in that function.
     """
-    raise NotImplementedError("TODO: connect your implementation")
+    from src.checkpoint import load_checkpoint 
+ 
+    return load_checkpoint(src, model, optimizer, train_generator, val_generator)
